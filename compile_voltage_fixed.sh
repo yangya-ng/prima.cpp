@@ -61,7 +61,7 @@ fi
 echo "步骤3: 编译GGML后端..."
 
 # 编译GGML后端
-g++ -std=c++11 -fPIC -O3 -g -Wall -Wextra -Wpedantic \
+g++ -std=c++20 -fPIC -O3 -g -Wall -Wextra -Wpedantic \
     -Iggml/include -Iggml/src \
     -D_XOPEN_SOURCE=600 -D_GNU_SOURCE -DNDEBUG \
     -DGGML_USE_OPENMP \
@@ -106,7 +106,7 @@ fi
 echo "步骤6: 编译llamafile SGEMM优化..."
 
 # 编译llamafile SGEMM优化
-g++ -std=c++11 -fPIC -O3 -g -Wall -Wextra -Wpedantic \
+g++ -std=c++20 -fPIC -O3 -g -Wall -Wextra -Wpedantic \
     -Iggml/include -Iggml/src \
     -D_XOPEN_SOURCE=600 -D_GNU_SOURCE -DNDEBUG \
     -DGGML_USE_OPENMP \
@@ -118,9 +118,61 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# Added: Compile llama.cpp source file
-echo "步骤7: 编译llama.cpp主程序..."
-g++ -std=c++11 -fPIC -O3 -g -Wall -Wextra -Wpedantic \
+# Compile required source files
+echo "步骤7: 编译llama-vocab.cpp..."
+g++ -std=c++20 -fPIC -O3 -g -Wall -Wextra -Wpedantic \
+    -Iggml/include -Iggml/src -Iinclude -Icommon \
+    -D_XOPEN_SOURCE=600 -D_GNU_SOURCE -DNDEBUG \
+    -DGGML_USE_OPENMP \
+    -pthread -fopenmp \
+    -c src/llama-vocab.cpp -o llama_vocab.o
+
+if [ $? -ne 0 ]; then
+    echo "错误: llama-vocab.cpp 编译失败"
+    exit 1
+fi
+
+echo "步骤8: 编译unicode.cpp..."
+g++ -std=c++20 -fPIC -O3 -g -Wall -Wextra -Wpedantic \
+    -Iggml/include -Iggml/src -Iinclude -Icommon \
+    -D_XOPEN_SOURCE=600 -D_GNU_SOURCE -DNDEBUG \
+    -DGGML_USE_OPENMP \
+    -pthread -fopenmp \
+    -c src/unicode.cpp -o unicode.o
+
+if [ $? -ne 0 ]; then
+    echo "错误: unicode.cpp 编译失败"
+    exit 1
+fi
+
+echo "步骤9: 编译unicode-data.cpp..."
+g++ -std=c++20 -fPIC -O3 -g -Wall -Wextra -Wpedantic \
+    -Iggml/include -Iggml/src -Iinclude -Icommon \
+    -D_XOPEN_SOURCE=600 -D_GNU_SOURCE -DNDEBUG \
+    -DGGML_USE_OPENMP \
+    -pthread -fopenmp \
+    -c src/unicode-data.cpp -o unicode_data.o
+
+if [ $? -ne 0 ]; then
+    echo "错误: unicode-data.cpp 编译失败"
+    exit 1
+fi
+
+echo "步骤10: 编译common.cpp..."
+g++ -std=c++20 -fPIC -O3 -g -Wall -Wextra -Wpedantic \
+    -Iggml/include -Iggml/src -Iinclude -Icommon \
+    -D_XOPEN_SOURCE=600 -D_GNU_SOURCE -DNDEBUG \
+    -DGGML_USE_OPENMP \
+    -pthread -fopenmp \
+    -c common/common.cpp -o common.o
+
+if [ $? -ne 0 ]; then
+    echo "错误: common.cpp 编译失败"
+    exit 1
+fi
+
+echo "步骤11: 编译llama.cpp主程序..."
+g++ -std=c++20 -fPIC -O3 -g -Wall -Wextra -Wpedantic \
     -Iggml/include -Iggml/src -Iinclude -Icommon \
     -D_XOPEN_SOURCE=600 -D_GNU_SOURCE -DNDEBUG \
     -DGGML_USE_OPENMP \
@@ -133,22 +185,17 @@ if [ $? -ne 0 ]; then
 fi
 
 
-echo "步骤8: 链接所有组件生成可执行文件..." # Updated step number
-
-# ... (previous steps)
-
-echo "步骤8: 链接所有组件生成可执行文件..." # Updated step number
+echo "步骤12: 链接所有组件生成可执行文件..."
 
 # 编译VOLTAGE主程序（独立版本，包含完整的GGML支持和量化函数，并链接llama.cpp库）
-g++ -std=c++11 -O3 -g -Wall -Wextra -Wpedantic \
+g++ -std=c++20 -O3 -g -Wall -Wextra -Wpedantic \
     -Iggml/include -Iggml/src -Iinclude -Icommon \
     -D_XOPEN_SOURCE=600 -D_GNU_SOURCE -DNDEBUG \
     -DGGML_USE_OPENMP \
     -DVOLTAGE_STANDALONE_BUILD \
     -pthread -fopenmp \
-    voltage_prima_complete.cpp \
+    voltage_prima_complete.cpp llama.o llama_vocab.o unicode.o unicode_data.o common.o \
     ggml_core.o ggml_quants.o ggml_backend.o ggml_alloc.o ggml_aarch64.o sgemm.o \
-    -L~/Desktop/prima.cpp/llama.cpp/ -llama \
     -lzmq -lz \
     -o voltage_ggml_standalone
 
