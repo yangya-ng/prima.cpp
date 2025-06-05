@@ -42,7 +42,7 @@ apt-get install -y libzmq3-dev zlib1g-dev libcxxopts-dev
   - 移除硬编码路径
   - 正确链接所有对象文件
 
-- **升级 C++ 标准**: 从 C++11 升级到 C++20 以支持指定初始化器
+- **升级 C++ 标准**: 从 C++11 升级到 C++2a (C++20) 以支持指定初始化器
 
 ### 4. 编译步骤优化
 
@@ -97,7 +97,7 @@ apt-get install -y libzmq3-dev zlib1g-dev libcxxopts-dev
 ### 编译器标志
 
 - **C 标准**: C11 (`-std=c11`)
-- **C++ 标准**: C++20 (`-std=c++20`)
+- **C++ 标准**: C++2a (`-std=c++2a`, 等同于 C++20)
 - **优化级别**: O3 (`-O3`)
 - **并行支持**: OpenMP (`-fopenmp`)
 - **调试信息**: 包含 (`-g`)

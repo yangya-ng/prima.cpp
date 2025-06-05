@@ -50,7 +50,7 @@ fi
 echo "步骤3: 编译GGML后端..."
 
 # 编译GGML后端
-g++ -std=c++20 -fPIC -O3 -g -Wall -Wextra -Wpedantic \
+g++ -std=c++2a -fPIC -O3 -g -Wall -Wextra -Wpedantic \
     -Iggml/include -Iggml/src \
     -D_XOPEN_SOURCE=600 -D_GNU_SOURCE -DNDEBUG \
     -DGGML_USE_OPENMP \
@@ -95,7 +95,7 @@ fi
 echo "步骤6: 编译llamafile SGEMM优化..."
 
 # 编译llamafile SGEMM优化
-g++ -std=c++20 -fPIC -O3 -g -Wall -Wextra -Wpedantic \
+g++ -std=c++2a -fPIC -O3 -g -Wall -Wextra -Wpedantic \
     -Iggml/include -Iggml/src \
     -D_XOPEN_SOURCE=600 -D_GNU_SOURCE -DNDEBUG \
     -DGGML_USE_OPENMP \
@@ -350,7 +350,7 @@ EOF
 echo "步骤8: 编译简化的VOLTAGE程序..."
 
 # 编译简化版本
-g++ -std=c++20 -O3 -g -Wall -Wextra -Wpedantic \
+g++ -std=c++2a -O3 -g -Wall -Wextra -Wpedantic \
     -Iggml/include -Iggml/src \
     -D_XOPEN_SOURCE=600 -D_GNU_SOURCE -DNDEBUG \
     -DGGML_USE_OPENMP \
