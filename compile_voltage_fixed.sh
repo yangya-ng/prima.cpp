@@ -61,7 +61,7 @@ fi
 echo "步骤3: 编译GGML后端..."
 
 # 编译GGML后端
-g++ -std=c++2a -fPIC -O3 -g -Wall -Wextra -Wpedantic \
+g++ -std=c++17 -fPIC -O3 -g -Wall -Wextra -Wpedantic \
     -Iggml/include -Iggml/src \
     -D_XOPEN_SOURCE=600 -D_GNU_SOURCE -DNDEBUG \
     -DGGML_USE_OPENMP \
@@ -106,7 +106,7 @@ fi
 echo "步骤6: 编译llamafile SGEMM优化..."
 
 # 编译llamafile SGEMM优化
-g++ -std=c++2a -fPIC -O3 -g -Wall -Wextra -Wpedantic \
+g++ -std=c++17 -fPIC -O3 -g -Wall -Wextra -Wpedantic \
     -Iggml/include -Iggml/src \
     -D_XOPEN_SOURCE=600 -D_GNU_SOURCE -DNDEBUG \
     -DGGML_USE_OPENMP \
@@ -120,7 +120,7 @@ fi
 
 # Compile required source files
 echo "步骤7: 编译llama-vocab.cpp..."
-g++ -std=c++2a -fPIC -O3 -g -Wall -Wextra -Wpedantic \
+g++ -std=c++17 -fPIC -O3 -g -Wall -Wextra -Wpedantic \
     -Iggml/include -Iggml/src -Iinclude -Icommon \
     -D_XOPEN_SOURCE=600 -D_GNU_SOURCE -DNDEBUG \
     -DGGML_USE_OPENMP \
@@ -133,7 +133,7 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "步骤8: 编译unicode.cpp..."
-g++ -std=c++2a -fPIC -O3 -g -Wall -Wextra -Wpedantic \
+g++ -std=c++17 -fPIC -O3 -g -Wall -Wextra -Wpedantic \
     -Iggml/include -Iggml/src -Iinclude -Icommon \
     -D_XOPEN_SOURCE=600 -D_GNU_SOURCE -DNDEBUG \
     -DGGML_USE_OPENMP \
@@ -146,7 +146,7 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "步骤9: 编译unicode-data.cpp..."
-g++ -std=c++2a -fPIC -O3 -g -Wall -Wextra -Wpedantic \
+g++ -std=c++17 -fPIC -O3 -g -Wall -Wextra -Wpedantic \
     -Iggml/include -Iggml/src -Iinclude -Icommon \
     -D_XOPEN_SOURCE=600 -D_GNU_SOURCE -DNDEBUG \
     -DGGML_USE_OPENMP \
@@ -159,7 +159,7 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "步骤10: 编译common.cpp..."
-g++ -std=c++2a -fPIC -O3 -g -Wall -Wextra -Wpedantic \
+g++ -std=c++17 -fPIC -O3 -g -Wall -Wextra -Wpedantic \
     -Iggml/include -Iggml/src -Iinclude -Icommon \
     -D_XOPEN_SOURCE=600 -D_GNU_SOURCE -DNDEBUG \
     -DGGML_USE_OPENMP \
@@ -172,7 +172,7 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "步骤11: 编译llama.cpp主程序..."
-g++ -std=c++2a -fPIC -O3 -g -Wall -Wextra -Wpedantic \
+g++ -std=c++17 -fPIC -O3 -g -Wall -Wextra -Wpedantic \
     -Iggml/include -Iggml/src -Iinclude -Icommon \
     -D_XOPEN_SOURCE=600 -D_GNU_SOURCE -DNDEBUG \
     -DGGML_USE_OPENMP \
@@ -188,7 +188,7 @@ fi
 echo "步骤12: 链接所有组件生成可执行文件..."
 
 # 编译VOLTAGE主程序（独立版本，包含完整的GGML支持和量化函数，并链接llama.cpp库）
-g++ -std=c++2a -O3 -g -Wall -Wextra -Wpedantic \
+g++ -std=c++17 -O3 -g -Wall -Wextra -Wpedantic \
     -Iggml/include -Iggml/src -Iinclude -Icommon \
     -D_XOPEN_SOURCE=600 -D_GNU_SOURCE -DNDEBUG \
     -DGGML_USE_OPENMP \
