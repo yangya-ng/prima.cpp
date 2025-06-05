@@ -171,7 +171,72 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-echo "步骤11: 编译llama.cpp主程序..."
+echo "步骤11: 编译log.cpp..."
+g++ -std=c++17 -fPIC -O3 -g -Wall -Wextra -Wpedantic \
+    -Iggml/include -Iggml/src -Iinclude -Icommon \
+    -D_XOPEN_SOURCE=600 -D_GNU_SOURCE -DNDEBUG \
+    -DGGML_USE_OPENMP \
+    -pthread -fopenmp \
+    -c common/log.cpp -o log.o
+
+if [ $? -ne 0 ]; then
+    echo "错误: log.cpp编译失败"
+    exit 1
+fi
+
+echo "步骤12: 编译profiler.cpp..."
+g++ -std=c++17 -fPIC -O3 -g -Wall -Wextra -Wpedantic \
+    -Iggml/include -Iggml/src -Iinclude -Icommon \
+    -D_XOPEN_SOURCE=600 -D_GNU_SOURCE -DNDEBUG \
+    -DGGML_USE_OPENMP \
+    -pthread -fopenmp \
+    -c common/profiler.cpp -o profiler.o
+
+if [ $? -ne 0 ]; then
+    echo "错误: profiler.cpp编译失败"
+    exit 1
+fi
+
+echo "步骤13: 编译llama-grammar.cpp..."
+g++ -std=c++17 -fPIC -O3 -g -Wall -Wextra -Wpedantic \
+    -Iggml/include -Iggml/src -Iinclude -Icommon \
+    -D_XOPEN_SOURCE=600 -D_GNU_SOURCE -DNDEBUG \
+    -DGGML_USE_OPENMP \
+    -pthread -fopenmp \
+    -c src/llama-grammar.cpp -o llama-grammar.o
+
+if [ $? -ne 0 ]; then
+    echo "错误: llama-grammar.cpp编译失败"
+    exit 1
+fi
+
+echo "步骤14: 编译llama-sampling.cpp..."
+g++ -std=c++17 -fPIC -O3 -g -Wall -Wextra -Wpedantic \
+    -Iggml/include -Iggml/src -Iinclude -Icommon \
+    -D_XOPEN_SOURCE=600 -D_GNU_SOURCE -DNDEBUG \
+    -DGGML_USE_OPENMP \
+    -pthread -fopenmp \
+    -c src/llama-sampling.cpp -o llama-sampling.o
+
+if [ $? -ne 0 ]; then
+    echo "错误: llama-sampling.cpp编译失败"
+    exit 1
+fi
+
+echo "步骤15: 编译build-info.cpp..."
+g++ -std=c++17 -fPIC -O3 -g -Wall -Wextra -Wpedantic \
+    -Iggml/include -Iggml/src -Iinclude -Icommon \
+    -D_XOPEN_SOURCE=600 -D_GNU_SOURCE -DNDEBUG \
+    -DGGML_USE_OPENMP \
+    -pthread -fopenmp \
+    -c build-info.cpp -o build-info.o
+
+if [ $? -ne 0 ]; then
+    echo "错误: build-info.cpp编译失败"
+    exit 1
+fi
+
+echo "步骤16: 编译llama.cpp主程序..."
 g++ -std=c++17 -fPIC -O3 -g -Wall -Wextra -Wpedantic \
     -Iggml/include -Iggml/src -Iinclude -Icommon \
     -D_XOPEN_SOURCE=600 -D_GNU_SOURCE -DNDEBUG \
@@ -185,7 +250,7 @@ if [ $? -ne 0 ]; then
 fi
 
 
-echo "步骤12: 链接所有组件生成可执行文件..."
+echo "步骤17: 链接所有组件生成可执行文件..."
 
 # 编译VOLTAGE主程序（独立版本，包含完整的GGML支持和量化函数，并链接llama.cpp库）
 g++ -std=c++17 -O3 -g -Wall -Wextra -Wpedantic \
@@ -195,6 +260,7 @@ g++ -std=c++17 -O3 -g -Wall -Wextra -Wpedantic \
     -DVOLTAGE_STANDALONE_BUILD \
     -pthread -fopenmp \
     voltage_prima_complete.cpp llama.o llama_vocab.o unicode.o unicode_data.o common.o \
+    log.o profiler.o llama-grammar.o llama-sampling.o build-info.o \
     ggml_core.o ggml_quants.o ggml_backend.o ggml_alloc.o ggml_aarch64.o sgemm.o \
     -lzmq -lz \
     -o voltage_ggml_standalone

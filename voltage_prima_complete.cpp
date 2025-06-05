@@ -162,6 +162,13 @@ public:
         struct ggml_tensor* tensor = ggml_new_tensor_2d(ctx->ggml_ctx, GGML_TYPE_F32, ne0, ne1);
         if (!tensor) throw std::runtime_error("Failed to create tensor: " + name);
         ggml_set_name(tensor, name.c_str());
+        
+        // Allocate memory for the tensor
+        size_t tensor_size = ggml_nbytes(tensor);
+        tensor->data = malloc(tensor_size);
+        if (!tensor->data) throw std::runtime_error("Failed to allocate memory for tensor: " + name);
+        memset(tensor->data, 0, tensor_size);
+        
         return tensor;
     }
 
@@ -170,6 +177,13 @@ public:
         struct ggml_tensor* result = ggml_mul_mat(ctx->ggml_ctx, a, b);
         if (!result) throw std::runtime_error("Matrix multiply failed for: " + name);
         ggml_set_name(result, name.c_str());
+        
+        // Allocate memory for result
+        size_t result_size = ggml_nbytes(result);
+        result->data = malloc(result_size);
+        if (!result->data) throw std::runtime_error("Failed to allocate memory for result: " + name);
+        memset(result->data, 0, result_size);
+        
         ctx->operations_count++;
         auto end = std::chrono::high_resolution_clock::now();
         float time_ms = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000.0f;
@@ -183,6 +197,13 @@ public:
         struct ggml_tensor* result = ggml_soft_max(ctx->ggml_ctx, input);
         if (!result) throw std::runtime_error("Softmax failed for: " + name);
         ggml_set_name(result, name.c_str());
+        
+        // Allocate memory for result
+        size_t result_size = ggml_nbytes(result);
+        result->data = malloc(result_size);
+        if (!result->data) throw std::runtime_error("Failed to allocate memory for result: " + name);
+        memset(result->data, 0, result_size);
+        
         ctx->operations_count++;
         auto end = std::chrono::high_resolution_clock::now();
         float time_ms = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000.0f;
@@ -196,6 +217,13 @@ public:
         struct ggml_tensor* result = ggml_scale(ctx->ggml_ctx, input, scale);
         if (!result) throw std::runtime_error("Scale failed for: " + name);
         ggml_set_name(result, name.c_str());
+        
+        // Allocate memory for result
+        size_t result_size = ggml_nbytes(result);
+        result->data = malloc(result_size);
+        if (!result->data) throw std::runtime_error("Failed to allocate memory for result: " + name);
+        memset(result->data, 0, result_size);
+        
         ctx->operations_count++;
         auto end = std::chrono::high_resolution_clock::now();
         float time_ms = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000.0f;
@@ -214,6 +242,11 @@ public:
 class VoltageAlgorithm2_DistributedAttention {
 public:
     static void broadcast_tensor(voltage_context* ctx, struct ggml_tensor* tensor, const std::string& name) {
+        // Skip network communication in single-device mode
+        if (ctx->n_world == 1 || !ctx->zmq_socket) {
+            return;
+        }
+        
         auto start = std::chrono::high_resolution_clock::now();
         size_t size = ggml_nbytes(tensor);
         std::vector<uint8_t> compressed;
@@ -243,6 +276,11 @@ public:
     }
 
     static void receive_tensor(voltage_context* ctx, struct ggml_tensor* tensor, const std::string& name) {
+        // Skip network communication in single-device mode
+        if (ctx->n_world == 1 || !ctx->zmq_socket) {
+            return;
+        }
+        
         auto start = std::chrono::high_resolution_clock::now();
         zmq::message_t msg;
         ctx->zmq_socket->recv(msg);
@@ -410,9 +448,18 @@ public:
         ctx->params = params;
         ctx->n_world = n_world;
         ctx->my_rank = my_rank;
-        ctx->n_embd = llama_n_embd(model);
-        ctx->n_head = llama_n_head(model);
-        ctx->n_layer = llama_n_layer(model);
+        
+        // Use model parameters if available, otherwise use defaults
+        if (model) {
+            ctx->n_embd = llama_n_embd(model);
+            ctx->n_head = llama_n_head(model);
+            ctx->n_layer = llama_n_layer(model);
+        } else {
+            // Default values for demo mode
+            ctx->n_embd = 4096;
+            ctx->n_head = 32;
+            ctx->n_layer = 32;
+        }
         ctx->head_dim = ctx->n_embd / ctx->n_head;
         ctx->computation_time_ms = 0.0f;
         ctx->communication_time_ms = 0.0f;
@@ -420,11 +467,10 @@ public:
         ctx->operations_count = 0;
 
         size_t ctx_size = 1024 * 1024 * 1024; // 1GB
-        struct ggml_init_params ggml_params = {
-            .mem_size = ctx_size,
-            .mem_buffer = nullptr,
-            .no_alloc = false
-        };
+        struct ggml_init_params ggml_params;
+        ggml_params.mem_size = ctx_size;
+        ggml_params.mem_buffer = nullptr;
+        ggml_params.no_alloc = false;
         ctx->ggml_ctx = ggml_init(ggml_params);
         if (!ctx->ggml_ctx) {
             printf("Failed to initialize GGML context\n");
@@ -449,13 +495,19 @@ public:
             return nullptr;
         }
 
-        ctx->zmq_ctx = new zmq::context_t(1);
-        ctx->zmq_socket = new zmq::socket_t(*ctx->zmq_ctx, my_rank == 0 ? ZMQ_PUB : ZMQ_SUB);
-        if (my_rank == 0) {
-            ctx->zmq_socket->bind(params.zmq_endpoint);
+        // Initialize ZMQ only for multi-device setups
+        if (n_world > 1) {
+            ctx->zmq_ctx = new zmq::context_t(1);
+            ctx->zmq_socket = new zmq::socket_t(*ctx->zmq_ctx, my_rank == 0 ? ZMQ_PUB : ZMQ_SUB);
+            if (my_rank == 0) {
+                ctx->zmq_socket->bind(params.zmq_endpoint);
+            } else {
+                ctx->zmq_socket->connect(params.zmq_endpoint);
+                ctx->zmq_socket->set(zmq::sockopt::subscribe, "");
+            }
         } else {
-            ctx->zmq_socket->connect(params.zmq_endpoint);
-            ctx->zmq_socket->set(zmq::sockopt::subscribe, "");
+            ctx->zmq_ctx = nullptr;
+            ctx->zmq_socket = nullptr;
         }
 
         if (ctx->params.debug_mode) {
@@ -636,16 +688,21 @@ int main(int argc, char* argv[]) {
     struct llama_model_params model_params = llama_model_default_params();
     model_params.n_gpu_layers = 0; // CPU-only for simplicity
 
-    // Load model
-    llama_model* model = llama_load_model_from_file(model_path.c_str(), model_params);
-    if (!model) {
-        printf("Failed to load model: %s\n", model_path.c_str());
-        return -1;
+    // Load model (optional for demo)
+    llama_model* model = nullptr;
+    if (model_path != "model.gguf") {
+        model = llama_load_model_from_file(model_path.c_str(), model_params);
+        if (!model) {
+            printf("Failed to load model: %s\n", model_path.c_str());
+            return -1;
+        }
+    } else {
+        printf("Running in demo mode without model file\n");
     }
 
     voltage_context* ctx = VoltageController::initialize(model, world_size, rank, params);
     if (!ctx) {
-        llama_free_model(model);
+        if (model) llama_free_model(model);
         return -1;
     }
 
