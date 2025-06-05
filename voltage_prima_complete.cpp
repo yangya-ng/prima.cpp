@@ -216,7 +216,7 @@ public:
         printf("  Tensor '%s': [", ggml_get_name(tensor));
         for (int i = 0; i < GGML_MAX_DIMS; ++i) {
             if (tensor->ne[i] == 1 && i > 0) break;
-            printf("%lld", tensor->ne[i]);
+            printf("%ld", (long)tensor->ne[i]);
             if (i < GGML_MAX_DIMS - 1 && tensor->ne[i+1] > 1) printf(", ");
         }
         printf("] (%s)\n", ggml_type_name(tensor->type));
@@ -289,12 +289,17 @@ public:
             printf("Step 1: Computing local Q, K, V matrices\n");
         }
         
+        // 转置输入切片并使其连续以匹配GGML的矩阵乘法要求
+        struct ggml_tensor* input_slice_t = ggml_transpose(voltage_ctx->ggml_ctx, input_slice);
+        struct ggml_tensor* input_slice_cont = ggml_cont(voltage_ctx->ggml_ctx, input_slice_t);
+        ggml_set_name(input_slice_cont, "input_slice_contiguous");
+        
         voltage_ctx->Q_local = VoltageGGMLUtils::matrix_multiply(
-            voltage_ctx, wq, input_slice, "Q_local");
+            voltage_ctx, input_slice_cont, wq, "Q_local");
         voltage_ctx->K_local = VoltageGGMLUtils::matrix_multiply(
-            voltage_ctx, wk, input_slice, "K_local");
+            voltage_ctx, input_slice_cont, wk, "K_local");
         voltage_ctx->V_local = VoltageGGMLUtils::matrix_multiply(
-            voltage_ctx, wv, input_slice, "V_local");
+            voltage_ctx, input_slice_cont, wv, "V_local");
         
         if (voltage_ctx->params.debug_mode) {
             VoltageGGMLUtils::print_tensor_info(voltage_ctx->Q_local);
@@ -326,9 +331,9 @@ public:
         }
         
         voltage_ctx->K_global = VoltageGGMLUtils::create_tensor_2d(
-            voltage_ctx, voltage_ctx->n_embd, voltage_ctx->seq_len, "K_global");
+            voltage_ctx, voltage_ctx->seq_len, voltage_ctx->n_embd, "K_global");
         voltage_ctx->V_global = VoltageGGMLUtils::create_tensor_2d(
-            voltage_ctx, voltage_ctx->n_embd, voltage_ctx->seq_len, "V_global");
+            voltage_ctx, voltage_ctx->seq_len, voltage_ctx->n_embd, "V_global");
         
         if (voltage_ctx->params.debug_mode) {
             VoltageGGMLUtils::print_tensor_info(voltage_ctx->K_global);
@@ -340,13 +345,18 @@ public:
             printf("Step 4-6: Computing attention scores and output\n");
         }
         
-        // 转置K用于矩阵乘法
-        struct ggml_tensor* K_transposed = ggml_transpose(voltage_ctx->ggml_ctx, voltage_ctx->K_global);
-        ggml_set_name(K_transposed, "K_transposed");
+        // 转置Q和K以匹配GGML矩阵乘法要求
+        struct ggml_tensor* Q_transposed = ggml_transpose(voltage_ctx->ggml_ctx, voltage_ctx->Q_local);
+        struct ggml_tensor* Q_cont = ggml_cont(voltage_ctx->ggml_ctx, Q_transposed);
+        ggml_set_name(Q_cont, "Q_contiguous");
         
-        // QK^T计算
+        struct ggml_tensor* K_transposed = ggml_transpose(voltage_ctx->ggml_ctx, voltage_ctx->K_global);
+        struct ggml_tensor* K_cont = ggml_cont(voltage_ctx->ggml_ctx, K_transposed);
+        ggml_set_name(K_cont, "K_contiguous");
+        
+        // QK^T计算: [4096, 128] × [4096, 512] = [128, 512]
         voltage_ctx->QK_scores = VoltageGGMLUtils::matrix_multiply(
-            voltage_ctx, voltage_ctx->Q_local, K_transposed, "QK_scores");
+            voltage_ctx, Q_cont, K_cont, "QK_scores");
         
         // 缩放 (1/sqrt(head_dim))
         float scale = 1.0f / sqrtf((float)voltage_ctx->head_dim);
@@ -357,13 +367,20 @@ public:
         struct ggml_tensor* QK_soft = VoltageGGMLUtils::apply_softmax(
             voltage_ctx, voltage_ctx->QK_scores, "QK_softmax");
         
-        // 与V相乘
-        struct ggml_tensor* QKV = VoltageGGMLUtils::matrix_multiply(
-            voltage_ctx, QK_soft, voltage_ctx->V_global, "QKV");
+        // 与V相乘 - 转置QK_soft以匹配V_global
+        struct ggml_tensor* QK_soft_t = ggml_transpose(voltage_ctx->ggml_ctx, QK_soft);
+        struct ggml_tensor* QK_soft_cont = ggml_cont(voltage_ctx->ggml_ctx, QK_soft_t);
+        ggml_set_name(QK_soft_cont, "QK_soft_contiguous");
         
-        // 输出投影
+        struct ggml_tensor* QKV = VoltageGGMLUtils::matrix_multiply(
+            voltage_ctx, QK_soft_cont, voltage_ctx->V_global, "QKV");
+        
+        // 输出投影 - 转置QKV并使其连续以匹配权重矩阵
+        struct ggml_tensor* QKV_t = ggml_transpose(voltage_ctx->ggml_ctx, QKV);
+        struct ggml_tensor* QKV_cont = ggml_cont(voltage_ctx->ggml_ctx, QKV_t);
+        ggml_set_name(QKV_cont, "QKV_contiguous");
         voltage_ctx->attention_output = VoltageGGMLUtils::matrix_multiply(
-            voltage_ctx, wo, QKV, "attention_output");
+            voltage_ctx, QKV_cont, wo, "attention_output");
         
         if (voltage_ctx->params.debug_mode) {
             VoltageGGMLUtils::print_tensor_info(voltage_ctx->QK_scores);
@@ -506,10 +523,17 @@ public:
         ctx->n_world = n_world;
         ctx->my_rank = my_rank;
         
-        // 从llama模型获取参数
+        // 从llama模型获取参数 (独立版本使用默认值)
+#ifdef VOLTAGE_STANDALONE_BUILD
+        // 使用默认的模型参数进行演示
+        ctx->n_embd = 4096;   // 默认嵌入维度
+        ctx->n_head = 32;     // 默认注意力头数
+        ctx->n_layer = 32;    // 默认层数
+#else
         ctx->n_embd = llama_n_embd(model);
         ctx->n_head = llama_n_head(model);
         ctx->n_layer = llama_n_layer(model);
+#endif
         ctx->head_dim = ctx->n_embd / ctx->n_head;
         
         // 初始化性能统计
@@ -571,7 +595,7 @@ public:
         
         // 创建输入切片 (只处理当前设备的位置)
         struct ggml_tensor* input_slice = VoltageGGMLUtils::create_tensor_2d(
-            voltage_ctx, voltage_ctx->n_embd, voltage_ctx->partition_size, "input_slice");
+            voltage_ctx, voltage_ctx->partition_size, voltage_ctx->n_embd, "input_slice");
         
         // 在实际实现中，这里会从完整输入中提取对应的位置切片
         // 现在我们只是创建一个占位符
@@ -709,7 +733,7 @@ int voltage_prima_integration_demo() {
     // 6. 创建输入张量
     printf("Step 5: Creating input tensor\n");
     struct ggml_tensor* input = VoltageGGMLUtils::create_tensor_2d(
-        voltage_ctx, voltage_ctx->n_embd, seq_len, "input");
+        voltage_ctx, seq_len, voltage_ctx->n_embd, "input");
     
     printf("Input tensor:\n");
     VoltageGGMLUtils::print_tensor_info(input);
