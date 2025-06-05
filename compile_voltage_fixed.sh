@@ -22,6 +22,12 @@ if [ ! -f "ggml/src/ggml-quants.c" ]; then
     exit 1
 fi
 
+# Added: Check for llama.cpp source file
+if [ ! -f "src/llama.cpp" ]; then
+    echo "错误: llama.cpp 文件不存在. 请确保 llama.cpp 文件在脚本同一目录下."
+    exit 1
+fi
+
 echo "步骤1: 编译GGML核心库..."
 
 # 编译GGML核心文件
@@ -112,9 +118,28 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-echo "步骤7: 编译VOLTAGE算法主程序..."
+# Added: Compile llama.cpp source file
+echo "步骤7: 编译llama.cpp主程序..."
+g++ -std=c++11 -fPIC -O3 -g -Wall -Wextra -Wpedantic \
+    -Iggml/include -Iggml/src -Iinclude -Icommon \
+    -D_XOPEN_SOURCE=600 -D_GNU_SOURCE -DNDEBUG \
+    -DGGML_USE_OPENMP \
+    -pthread -fopenmp \
+    -c src/llama.cpp -o llama.o
 
-# 编译VOLTAGE主程序（独立版本，不依赖llama.cpp）
+if [ $? -ne 0 ]; then
+    echo "错误: llama.cpp 编译失败"
+    exit 1
+fi
+
+
+echo "步骤8: 链接所有组件生成可执行文件..." # Updated step number
+
+# ... (previous steps)
+
+echo "步骤8: 链接所有组件生成可执行文件..." # Updated step number
+
+# 编译VOLTAGE主程序（独立版本，包含完整的GGML支持和量化函数，并链接llama.cpp库）
 g++ -std=c++11 -O3 -g -Wall -Wextra -Wpedantic \
     -Iggml/include -Iggml/src -Iinclude -Icommon \
     -D_XOPEN_SOURCE=600 -D_GNU_SOURCE -DNDEBUG \
@@ -123,12 +148,15 @@ g++ -std=c++11 -O3 -g -Wall -Wextra -Wpedantic \
     -pthread -fopenmp \
     voltage_prima_complete.cpp \
     ggml_core.o ggml_quants.o ggml_backend.o ggml_alloc.o ggml_aarch64.o sgemm.o \
+    -L~/Desktop/prima.cpp/llama.cpp/ -llama \
+    -lzmq -lz \
     -o voltage_ggml_standalone
 
 if [ $? -ne 0 ]; then
     echo "错误: VOLTAGE主程序编译失败"
     exit 1
 fi
+
 
 echo
 echo "✅ 编译成功！"
