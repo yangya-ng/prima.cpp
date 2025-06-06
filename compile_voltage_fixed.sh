@@ -223,7 +223,18 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-echo "步骤15: 编译build-info.cpp..."
+echo "步骤15: 生成并编译build-info.cpp..."
+
+# 生成build-info.cpp文件
+echo "正在生成build-info.cpp..."
+./scripts/build-info.sh g++ > build-info.cpp
+
+if [ $? -ne 0 ]; then
+    echo "错误: build-info.cpp生成失败"
+    exit 1
+fi
+
+echo "正在编译build-info.cpp..."
 g++ -std=c++17 -fPIC -O3 -g -Wall -Wextra -Wpedantic \
     -Iggml/include -Iggml/src -Iinclude -Icommon \
     -D_XOPEN_SOURCE=600 -D_GNU_SOURCE -DNDEBUG \
