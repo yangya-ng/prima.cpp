@@ -1,0 +1,240 @@
+diff --git a/common/common.h b/common/common.h
+index 1234567..abcdefg 100644
+--- a/common/common.h
++++ b/common/common.h
+@@ -100,6 +100,17 @@ struct gpt_params {
+     int32_t n_world               =     1; // number of devices to use
+     int32_t rank                  =     0; // my rank for distributed inference
+     uint32_t n_layer_window[32]   =   {0}; // layer window size on each node
++    
++    // Voltage algorithm parameters
++    bool    enable_voltage        = false; // enable Voltage position-wise parallelism
++    bool    voltage_adaptive      =  true; // use adaptive strategy selection
++    int32_t voltage_partition_size=     0; // manual partition size (0 = auto)
++    enum voltage_strategy {
++        VOLTAGE_QKV_FIRST = 0,
++        VOLTAGE_QK_FIRST = 1,
++        VOLTAGE_ADAPTIVE = 2
++    } voltage_strategy_mode       = VOLTAGE_ADAPTIVE;
++    
+     std::string master_ip         = "localhost"; // ip address of the master node
+     std::string next_node_ip      = "localhost"; // ip address of my next node
+     bool    prefetch              = false; // prefetch layer weights
+
+diff --git a/common/arg.cpp b/common/arg.cpp
+index 1234567..abcdefg 100644
+--- a/common/arg.cpp
++++ b/common/arg.cpp
+@@ -720,6 +720,25 @@ gpt_params_parse_ex(int argc, char ** argv, gpt_params & params) {
+             params.next_node_ip = value;
+         }
+     },
++    {
++        {"--voltage"},
++        "enable Voltage position-wise parallelism (default: false)",
++        [](gpt_params & params) {
++            params.enable_voltage = true;
++        }
++    },
++    {
++        {"--voltage-strategy"}, "{qkv,qk,adaptive}",
++        "Voltage computation strategy (default: adaptive)",
++        [](gpt_params & params, const std::string & value) {
++            if (value == "qkv") { params.voltage_strategy_mode = gpt_params::VOLTAGE_QKV_FIRST; }
++            else if (value == "qk") { params.voltage_strategy_mode = gpt_params::VOLTAGE_QK_FIRST; }
++            else if (value == "adaptive") { params.voltage_strategy_mode = gpt_params::VOLTAGE_ADAPTIVE; }
++            else {
++                throw std::invalid_argument("invalid voltage strategy: " + value);
++            }
++        }
++    },
+     {
+         {"--prefetch"},
+         format("whether to prefetch layer weights (default: %s)", params.prefetch ? "true" : "false"),
+
+diff --git a/src/llama.cpp b/src/llama.cpp
+index 1234567..abcdefg 100644
+--- a/src/llama.cpp
++++ b/src/llama.cpp
+@@ -3580,6 +3580,7 @@ struct llama_cparams {
+     uint32_t  n_world;
+     uint32_t  rank;
+     uint32_t  n_layer_window[32];
++    bool      enable_voltage;
+     
+     // other fields...
+ };
+@@ -3820,6 +3821,65 @@ static int32_t map_layer_to_local_id(
+     return cycle_offset - cumulative_layers + local_offset;
+ }
+
++// Voltage position-wise parallelism functions
++static bool voltage_this_position_is_mine(
++    uint32_t pos,
++    uint32_t n_world,
++    uint32_t my_rank,
++    uint32_t seq_len) {
++    
++    uint32_t start_pos, end_pos;
++    voltage_get_my_position_range(n_world, my_rank, seq_len, &start_pos, &end_pos);
++    return pos >= start_pos && pos < end_pos;
++}
++
++static void voltage_get_my_position_range(
++    uint32_t n_world,
++    uint32_t my_rank,
++    uint32_t seq_len,
++    uint32_t* start_pos,
++    uint32_t* end_pos) {
++    
++    uint32_t partition_size = seq_len / n_world;
++    uint32_t remainder = seq_len % n_world;
++    
++    if (my_rank < remainder) {
++        *start_pos = my_rank * (partition_size + 1);
++        *end_pos = *start_pos + partition_size + 1;
++    } else {
++        *start_pos = my_rank * partition_size + remainder;
++        *end_pos = *start_pos + partition_size;
++    }
++}
++
++static int voltage_select_optimal_strategy(
++    uint32_t seq_len,
++    uint32_t n_head,
++    uint32_t head_dim,
++    uint32_t partition_size,
++    uint32_t n_partitions) {
++    
++    // Based on paper's complexity analysis
++    float cost_qkv_first = 2.0f * seq_len * head_dim + 
++                          (seq_len * seq_len) / (float)n_partitions;
++    float cost_qk_first = seq_len * seq_len + 
++                         (seq_len * head_dim) / (float)n_partitions;
++    
++    return (cost_qk_first < cost_qkv_first) ? 1 : 0; // 1=QK_FIRST, 0=QKV_FIRST
++}
++
++static struct ggml_tensor * voltage_build_attention_layer(
++    struct ggml_context * ctx,
++    struct ggml_tensor * inp,
++    const llama_layer & layer,
++    uint32_t start_pos,
++    uint32_t end_pos,
++    int strategy) {
++    
++    // Implementation of Voltage attention computation
++    // This would contain the actual GGML operations for position-wise attention
++    return inp; // Placeholder
++}
++
+ static std::vector<struct ggml_cgraph *> llama_build_graph(
+          llama_context & lctx,
+     const llama_ubatch & batch,
+@@ -3830,6 +3890,15 @@ static std::vector<struct ggml_cgraph *> llama_build_graph(
+     const uint32_t   my_rank        = lctx.cparams.rank;
+     const uint32_t * n_layer_window = lctx.cparams.n_layer_window;
+     
++    // Check if Voltage mode is enabled
++    if (lctx.cparams.enable_voltage) {
++        return llama_build_graph_voltage(lctx, batch, worst_case);
++    }
++    
++    // Original layer-wise parallelism code continues...
++}
++
++static std::vector<struct ggml_cgraph *> llama_build_graph_voltage(
+     // this callback allows us to apply custom logic to each tensor (e.g. ggml-alloc, offloading, etc.)
+     llama_set_inputs_t   llama_set_inputs = llama_set_inputs_default;
+     llama_set_outputs_t  llama_set_outputs = llama_set_outputs_default;
+@@ -3840,6 +3909,50 @@ static std::vector<struct ggml_cgraph *> llama_build_graph(
+     const int64_t n_embd_head = hparams.n_embd_head();
+     const int64_t n_embd_gqa  = hparams.n_embd_gqa();
+     
++    // Get position range for this device
++    uint32_t start_pos, end_pos;
++    voltage_get_my_position_range(n_world, my_rank, batch.n_tokens, &start_pos, &end_pos);
++    
++    LLAMA_LOG_INFO("Voltage mode: device %u handles positions %u-%u\n", 
++                   my_rank, start_pos, end_pos);
++    
++    // Select computation strategy
++    int strategy = voltage_select_optimal_strategy(
++        batch.n_tokens, hparams.n_head, n_embd_head, 
++        end_pos - start_pos, n_world);
++    
++    LLAMA_LOG_INFO("Voltage strategy: %s\n", 
++                   strategy ? "QK-First" : "QKV-First");
++    
++    std::vector<struct ggml_cgraph *> sub_gfs;
++    
++    // Build computation graph for each layer with position-wise parallelism
++    for (int il = 0; il < n_layer; ++il) {
++        struct ggml_cgraph * sub_gf = ggml_new_graph_custom(
++            ctx0, llama_model_max_nodes(model), false);
++        
++        // Extract position slice for this device
++        struct ggml_tensor * inp_slice = ggml_view_2d(
++            ctx0, inpL,
++            n_embd, end_pos - start_pos,
++            inpL->nb[1], start_pos * inpL->nb[1]);
++        
++        // Compute attention for this position slice
++        struct ggml_tensor * cur = voltage_build_attention_layer(
++            ctx0, inp_slice, model.layers[il], start_pos, end_pos, strategy);
++        
++        ggml_build_forward_expand(sub_gf, cur);
++        sub_gfs.push_back(sub_gf);
++    }
++    
++    return sub_gfs;
++}
++
++// Communication functions for Voltage
++static void voltage_send_position_data(zmq::socket_t & socket, 
++                                      struct ggml_tensor * tensor,
++                                      uint32_t start_pos, 
++                                      uint32_t end_pos) {
+     GGML_ASSERT(batch.n_tokens > 0);
+ 
+     const auto & hparams = model.hparams;
+@@ -17850,6 +17963,25 @@ static void llama_send_tensors(zmq::socket_t & socket, struct llama_ubatch * ub
+     }
+ }
+
++static void voltage_recv_position_data(zmq::socket_t & socket,
++                                      struct ggml_tensor * tensor,
++                                      uint32_t expected_start,
++                                      uint32_t expected_end) {
++    std::vector<zmq::message_t> recv_msgs;
++    if (!zmq::recv_multipart(socket, std::back_inserter(recv_msgs))) {
++        LLAMA_LOG_ERROR("Failed to receive Voltage position data\n");
++        return;
++    }
++    
++    // Parse position metadata
++    uint32_t start_pos = *(uint32_t*)recv_msgs[1].data();
++    uint32_t end_pos = *(uint32_t*)recv_msgs[3].data();
++    
++    GGML_ASSERT(start_pos == expected_start && end_pos == expected_end);
++    
++    // Copy tensor data
++    std::memcpy(ggml_get_data(tensor), recv_msgs[5].data(), recv_msgs[5].size());
++}
++
+ static void llama_recv_tensors(zmq::socket_t & socket, struct llama_ubatch * ubatch, const bool is_out_embd=false) {
+     std::vector<zmq::message_t> recv_msgs;
+     if (!zmq::recv_multipart(socket, std::back_inserter(recv_msgs))) {
+
+diff --git a/include/llama.h b/include/llama.h
+index 1234567..abcdefg 100644
+--- a/include/llama.h
++++ b/include/llama.h
+@@ -200,6 +200,7 @@ extern "C" {
+         uint32_t n_world;
+         uint32_t rank;
+         uint32_t n_layer_window[32];
++        bool     enable_voltage;
+         
+         // other fields...
+     } llama_context_params;
